@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[NovaOS] Post-instalación iniciada..."
+
+# --- 0) Zona horaria (ajusta si lo necesitas)
+sudo timedatectl set-timezone America/Costa_Rica || true
+
+# --- 1) Actualización base
+sudo apt update
+sudo apt -y upgrade
+
+# --- 2) Herramientas base (headers para Guest Additions, etc.)
+sudo apt -y install build-essential dkms linux-headers-$(uname -r) ca-certificates curl wget git vim gpg htop
+
+# --- 3) NetworkManager como renderer (para que KDE lo administre)
+sudo apt -y install network-manager
+sudo bash -c 'cat >/etc/netplan/01-nm.yaml <<EOF
+network:
+  version: 2
+  renderer: NetworkManager
+EOF'
+sudo chmod 600 /etc/netplan/01-nm.yaml
+sudo netplan apply || true
+sudo systemctl enable --now NetworkManager || true
+
+# --- 4) Escritorio KDE mínimo + SDDM + Xorg (si ya lo instalaste, no pasa nada)
+sudo apt -y install plasma-desktop sddm xorg
+sudo debconf-set-selections <<< "sddm shared/default-x-display-manager select sddm"
+sudo dpkg-reconfigure -f noninteractive sddm || true
+
+# --- 5) Aplicaciones base y utilidades de demo
+sudo apt -y install konsole dolphin firefox libreoffice-writer kcalc \
+  cups system-config-printer \
+  openssh-server ufw \
+  flatpak plasma-discover-backend-flatpak
+
+# --- 6) Impresión
+sudo systemctl enable --now cups
+
+# --- 7) Firewall (UFW) – permite SSH
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+yes | sudo ufw enable
+
+# --- 8) SSH: mantener password habilitado por ahora (para no bloquear acceso).
+# Cuando agregues tu llave pública a ~/.ssh/authorized_keys, puedes desactivar password:
+# sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sudo systemctl restart ssh
+
+# --- 9) Flathub (para instalar apps desde Discover)
+sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+echo
+echo "[NovaOS] Listo:"
+echo " - KDE/SDDM instalado"
+echo " - NetworkManager activo"
+echo " - UFW activo (SSH permitido)"
+echo " - CUPS activo"
+echo " - Flatpak + Discover configurados"
+echo "Reinicia la VM para asegurar todo."

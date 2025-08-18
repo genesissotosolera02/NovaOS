@@ -1,0 +1,6 @@
+systemd-analyze            # tiempo de arranque
+free -h                    # RAM en reposo
+nmcli device status        # interfaces administradas por NM
+sudo ufw status verbose    # firewall
+lpstat -t                  # CUPS/impresoras
+plasmashell --version || true
