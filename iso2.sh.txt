@@ -1,0 +1,54 @@
+#!/bin/bash
+set -e
+
+ISO_NAME="NovaOS.iso"
+WORKDIR="$HOME/iso-work"
+ROOTDIR="$WORKDIR/rootfs"
+BUILDDIR="$WORKDIR/iso-build"
+
+echo "[*] Creando directorios de trabajo..."
+rm -rf "$WORKDIR"
+mkdir -p "$ROOTDIR" "$BUILDDIR"
+
+echo "[*] Copiando archivos necesarios al rootfs..."
+sudo rsync -aAX \
+  --exclude={"/proc/*","/sys/*","/dev/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","$WORKDIR"} \
+  / "$ROOTDIR"
+
+echo "[*] Creando squashfs..."
+sudo mksquashfs "$ROOTDIR" "$BUILDDIR/filesystem.squashfs" -comp gzip -b 1M -e boot
+
+echo "[*] Copiando kernel y bootloader..."
+sudo mkdir -p "$BUILDDIR/boot"
+sudo cp -r /boot/* "$BUILDDIR/boot/"
+
+# Aquí deberías tener tu isolinux o grub preparado
+# Ejemplo para isolinux:
+if [ -d /usr/lib/ISOLINUX ]; then
+    echo "[*] Configurando ISOLINUX..."
+    sudo mkdir -p "$BUILDDIR/isolinux"
+    sudo cp /usr/lib/ISOLINUX/isolinux.bin "$BUILDDIR/isolinux/"
+    sudo cp /usr/lib/ISOLINUX/isohdpfx.bin "$BUILDDIR/isolinux/"
+    # Deberías crear un isolinux.cfg mínimo
+    cat <<EOF | sudo tee "$BUILDDIR/isolinux/isolinux.cfg"
+UI menu.c32
+PROMPT 0
+TIMEOUT 50
+DEFAULT NovaOS
+
+LABEL NovaOS
+    KERNEL /boot/vmlinuz-$(uname -r)
+    APPEND initrd=/boot/initrd.img-$(uname -r) boot=live
+EOF
+fi
+
+echo "[*] Generando ISO..."
+sudo xorriso -as mkisofs \
+  -o "$ISO_NAME" \
+  -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+  -c isolinux/boot.cat \
+  -b isolinux/isolinux.bin \
+  -no-emul-boot -boot-load-size 4 -boot-info-table \
+  "$BUILDDIR"
+
+echo "[✔] ISO creada: $ISO_NAME"
