@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# === Config 2===
+ISO_OUT="$HOME/NovaOS-fast-$(date +%Y%m%d-%H%M).iso"
+WORK="$HOME/_fastiso"
+ROOT="$WORK/rootfs"
+
+echo "[1/6] Instalando dependencias mínimas…"
+sudo apt-get update -y
+sudo apt-get install -y squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools rsync
+
+echo "[2/6] Limpieza rápida para reducir tamaño…"
+sudo apt-get -y autoremove --purge || true
+sudo apt-get clean || true
+sudo journalctl --vacuum-size=50M || true
+sudo rm -rf /tmp/* /var/tmp/* || true
+
+echo "[3/6] Preparando staging… $WORK"
+rm -rf "$WORK"
+mkdir -p "$ROOT"
+
+echo "[3.1] Copiando rootfs (rsync rápido con exclusiones seguras)…"
+# Excluye pseudo FS y cosas pesadas / volátiles
+sudo rsync -aHAX --numeric-ids / "$ROOT" \
+  --exclude={"/proc/*","/sys/*","/dev/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found","$WORK/*","/swapfile","/var/cache/apt/archives/*"} \
+  --exclude={"/home/*/.cache/*","/home/*/Downloads/*","/var/log/*"} 
+
+# Recrea directorios vacíos necesarios
+sudo mkdir -p "$ROOT"/{proc,sys,dev,run,tmp}
+
+echo "[4/6] Construyendo estructura ISO (kernel/initrd + squashfs)…"
+ISO_DIR="$WORK/iso"
+mkdir -p "$ISO_DIR/live" "$ISO_DIR/boot/grub"
+
+# Toma el kernel/initrd más recientes
+KERNEL="$(ls -1v /boot/vmlinuz-* | tail -1)"
+INITRD="$(ls -1v /boot/initrd.img-* | tail -1)"
+cp "$KERNEL" "$ISO_DIR/boot/vmlinuz"
+cp "$INITRD" "$ISO_DIR/boot/initrd.img"
+
+echo "[4.1] Generando SquashFS (compresión zstd, multi-CPU)…"
+# Usa todos los núcleos disponibles
+PROCS="$(nproc)"
+sudo mksquashfs "$ROOT" "$ISO_DIR/live/filesystem.squashfs" \
+  -comp zstd -Xcompression-level 15 -processors "$PROCS"
+
+echo "[4.2] Escribiendo grub.cfg…"
+cat > "$ISO_DIR/boot/grub/grub.cfg" <<'GRUBCFG'
+set default=0
+set timeout=5
+
+menuentry "NovaOS Live" {
+    linux /boot/vmlinuz boot=live quiet
+    initrd /boot/initrd.img
+}
+GRUBCFG
+
+echo "[5/6] Creando ISO booteable (BIOS + UEFI)…"
+grub-mkrescue -o "$ISO_OUT" "$ISO_DIR"
+
+echo "[6/6] Listo ✅  ISO: $ISO_OUT"
+echo "Prueba: crea una VM nueva en VirtualBox y monta esa ISO como CD."
+EOF
+
+chmod +x fast_novaos_iso.sh
